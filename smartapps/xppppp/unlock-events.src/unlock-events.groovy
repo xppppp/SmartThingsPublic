@@ -25,9 +25,19 @@ definition(
 
 
 preferences {
-	section("When this lock is unlocked") {
+	section("When this lock is unlocked...") {
 		input "lock1", "capability.lock", multiple: false, required: true
 	}
+    section("And it's dark...") {
+		input "luminance1", "capability.illuminanceMeasurement", title: "Where?"
+	}
+  	section("Turn on these lights..."){
+		input "switches", "capability.switch", multiple: true
+	}
+	section("and change mode to...") {
+		input "afterUnlockMode", "mode", title: "Mode?"
+	}
+
 }
 
 def installed() {
@@ -39,7 +49,6 @@ def updated() {
 	subscribe(lock1, "lock.unlocked", unlockedHandler)
 }
 
-// TODO: implement event handlers
 private def executeRoutine(name) {
     log.trace "Executing Routine \'${name}\'"
     location.helloHome.execute(name)
@@ -65,7 +74,12 @@ private def setAlarmMode(name) {
 }
 
 def unlockedHandler(evt) {
-	log.debug evt.value
-	log.debug "Turning off alarm"
    	setAlarmMode("off")
+    setMode(afterUnlockMode)
+    def lightSensorState = luminance1.currentIlluminance
+	log.debug "SENSOR = $lightSensorState"
+	if (lightSensorState != null && lightSensorState < 10) {
+		log.trace "light.on() ... [luminance: ${lightSensorState}]"
+		switches.on()
+	}
 }
