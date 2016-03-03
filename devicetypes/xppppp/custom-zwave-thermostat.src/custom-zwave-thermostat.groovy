@@ -1,5 +1,4 @@
 metadata {
-	// Automatically generated. Make future change here.
 	definition (name: "Custom Z-Wave Thermostat", namespace: "xppppp", author: "xppppp") {
 		capability "Actuator"
 		capability "Temperature Measurement"
@@ -8,13 +7,20 @@ metadata {
 		capability "Configuration"
 		capability "Polling"
 		capability "Sensor"
+		capability "Refresh"
+		capability "Battery"
 		
 		// attribute "thermostatFanState"
 
 		command "switchMode"
 		command "switchFanMode"
-        command "quickSetCool"
-        command "quickSetHeat"
+		command "quickSetCool"
+		command "quickSetHeat"
+		command "refresh"
+		command "heatLevelUp"
+		command "heatLevelDown"
+		command "coolLevelUp"
+		command "coolLevelDown"
 
 		fingerprint deviceId: "0x08"
 		fingerprint inClusters: "0x43,0x40,0x44,0x31"
@@ -88,26 +94,38 @@ metadata {
 			state "fanOn", label:'${name}', action:"switchFanMode"
 			state "fanCirculate", label:'${name}', action:"switchFanMode"
 		}
-		controlTile("heatSliderControl", "device.heatingSetpoint", "slider", height: 1, width: 2, inactiveLabel: false) {
-			state "setHeatingSetpoint", action:"quickSetHeat", backgroundColor:"#d04e00"
+		standardTile("heatLevelUp", "device.heatLevelUp", inactiveLabel: false, decoration: "flat") {
+			state "heatLevelUp", label:'  ', action:"heatLevelUp", icon:"st.thermostat.thermostat-up"
+ 		}
+		standardTile("heatLevelDown", "device.heatLevelDown", inactiveLabel: false, decoration: "flat") {
+			state "heatLevelDown", label:'  ', action:"heatLevelDown", icon:"st.thermostat.thermostat-down"
 		}
 		valueTile("heatingSetpoint", "device.heatingSetpoint", inactiveLabel: false, decoration: "flat") {
 			state "heat", label:'${currentValue}° heat', backgroundColor:"#ffffff"
 		}
-		controlTile("coolSliderControl", "device.coolingSetpoint", "slider", height: 1, width: 2, inactiveLabel: false) {
-			state "setCoolingSetpoint", action:"quickSetCool", backgroundColor: "#1e9cbb"
+		standardTile("coolLevelUp", "device.coolLevelUp", inactiveLabel: false, decoration: "flat") {
+			state "coolLevelUp", label:'  ', action:"coolLevelUp", icon:"st.thermostat.thermostat-up"
+		}
+		standardTile("coolLevelDown", "device.coolLevelDown", inactiveLabel: false, decoration: "flat") {
+			state "coolLevelDown", label:'  ', action:"coolLevelDown", icon:"st.thermostat.thermostat-down"
 		}
 		valueTile("coolingSetpoint", "device.coolingSetpoint", inactiveLabel: false, decoration: "flat") {
 			state "cool", label:'${currentValue}° cool', backgroundColor:"#ffffff"
 		}
-		standardTile("refresh", "device.thermostatMode", inactiveLabel: false, decoration: "flat") {
-			state "default", action:"polling.poll", icon:"st.secondary.refresh"
+		standardTile("refresh", "command.refresh", inactiveLabel: false, decoration: "flat") {
+			state "default", action:"refresh.refresh", icon:"st.secondary.refresh"
+		}
+		valueTile("battery", "device.battery", inactiveLabel: false, decoration: "flat") { 
+			state "battery", label:'Battery ${currentValue}%', backgroundColor:"#ffffff" 
+		}
+		valueTile("humidity", "device.humidity", inactiveLabel: false, decoration: "flat") { 
+			state "humidity", label:'Humidity ${currentValue}%', backgroundColor:"#ffffff"
 		}
 		standardTile("configure", "device.configure", inactiveLabel: false, decoration: "flat") {
 			state "configure", label:'', action:"configuration.configure", icon:"st.secondary.configure"
 		}
 		main "temperature"
-		details(["temperature", "mode", "fanMode", "heatSliderControl", "heatingSetpoint", "coolSliderControl", "coolingSetpoint", "refresh", "configure"])
+		details(["temperature", "mode", "fanMode", "heatLevelDown", "heatingSetpoint", "heatLevelUp", "coolLevelDown", "coolingSetpoint", "coolLevelUp", "battery", "humidity", "refresh", "configure"])
 	}
 }
 
@@ -182,6 +200,8 @@ def zwaveEvent(physicalgraph.zwave.commands.thermostatsetpointv2.ThermostatSetpo
 def zwaveEvent(physicalgraph.zwave.commands.sensormultilevelv3.SensorMultilevelReport cmd)
 {
 	def map = [:]
+	map.displayed = true
+	map.isStateChange = true
 	if (cmd.sensorType == 1) {
 		map.value = convertTemperatureIfNeeded(cmd.scaledSensorValue, cmd.scale == 1 ? "F" : "C", cmd.precision)
 		map.unit = getTemperatureScale()
@@ -317,7 +337,10 @@ def poll() {
 		zwave.thermostatSetpointV1.thermostatSetpointGet(setpointType: 2).format(),
 		zwave.thermostatModeV2.thermostatModeGet().format(),
 		zwave.thermostatFanModeV3.thermostatFanModeGet().format(),
-		zwave.thermostatOperatingStateV1.thermostatOperatingStateGet().format()
+		zwave.thermostatOperatingStateV1.thermostatOperatingStateGet().format(),
+		getBattery(),
+		setClock(),
+		zwave.multiChannelV3.multiInstanceCmdEncap(instance: 2).encapsulate(zwave.sensorMultilevelV3.sensorMultilevelGet()).format() // CT-100/101 Customization for Humidity
 	], 2300)
 }
 
@@ -544,4 +567,149 @@ def fanCirculate() {
 
 private getStandardDelay() {
 	1000
+}
+
+def zwaveEvent(physicalgraph.zwave.commands.multichannelv3.MultiInstanceCmdEncap cmd) {
+	def encapsulatedCommand = cmd.encapsulatedCommand([0x31: 3])
+	log.debug ("multiinstancev1.MultiInstanceCmdEncap: command from instance ${cmd.instance}: ${encapsulatedCommand}")
+	if (encapsulatedCommand) {
+		return zwaveEvent(encapsulatedCommand)
+	}
+}
+def zwaveEvent(physicalgraph.zwave.commands.batteryv1.BatteryReport cmd) {
+	def nowTime = new Date().time
+	state.lastBatteryGet = nowTime
+	def map = [ name: "battery", unit: "%" ]
+	map.displayed = true
+	map.isStateChange = true
+	if (cmd.batteryLevel == 0xFF || cmd.batteryLevel == 0) {
+		map.value = 1
+		map.descriptionText = "battery is low!"
+	} else {
+		map.value = cmd.batteryLevel
+	}
+	map
+}
+
+private getBattery() {	//once every 24 hours
+	def nowTime = new Date().time
+	def ageInMinutes = state.lastBatteryGet ? (nowTime - state.lastBatteryGet)/60000 : 1440
+	log.debug "Battery report age: ${ageInMinutes} minutes"
+	if (ageInMinutes >= 1440) {
+		log.debug "Fetching fresh battery value"
+		zwave.batteryV1.batteryGet().format()
+	} else "delay 87"
+}
+
+private setClock() {	// once a day
+	def nowTime = new Date().time
+	def ageInMinutes = state.lastClockSet ? (nowTime - state.lastClockSet)/60000 : 1440
+	log.debug "Clock set age: ${ageInMinutes} minutes"
+	if (ageInMinutes >= 1440) {
+		state.lastClockSet = nowTime
+		def nowCal = Calendar.getInstance(location.timeZone) // get current location timezone
+		log.debug "Setting clock to ${nowCal.getTime().format("EEE MMM dd yyyy HH:mm:ss z", location.timeZone)}"
+		sendEvent(name: "SetClock", value: "setting clock to ${nowCal.getTime().format("EEE MMM dd yyyy HH:mm:ss z", location.timeZone)}", displayed: true, isStateChange: true)
+		zwave.clockV1.clockSet(hour: nowCal.get(Calendar.HOUR_OF_DAY), minute: nowCal.get(Calendar.MINUTE), weekday: nowCal.get(Calendar.DAY_OF_WEEK)).format()
+	} else "delay 87"
+}
+
+def refresh() {
+	// Force a refresh
+	log.info "Requested a refresh"
+	state.lastBatteryGet = (new Date().time) - (1440 * 60000)
+	state.lastClockSet = (new Date().time) - (1440 * 60000)
+	poll()
+}
+
+def coolLevelUp() {
+	def locationScale = getTemperatureScale()
+	def maxTemp
+	def minTemp
+	if (locationScale == "C") {
+		maxTemp = 37 // Max Temp in C
+		minTemp = 1 // Min Temp in C
+		log.trace "Location is in Celsius, MaxTemp $maxTemp, MinTemp $minTemp"
+	} else {
+		maxTemp = 99 // Max temp in F
+		minTemp = 35 // Max temp in F
+		log.trace "Location is in Farenheit, MaxTemp $maxTemp, MinTemp $minTemp"
+	}
+
+	int nextLevel = device.currentValue("coolingSetpoint") + 1
+	
+	if( nextLevel > maxTemp) {
+		nextLevel = maxTemp
+	}
+	log.debug "Setting cool set point up to: ${nextLevel}"
+	quickSetCool(nextLevel)
+}
+
+def coolLevelDown() {
+	def locationScale = getTemperatureScale()
+	def maxTemp
+	def minTemp
+	if (locationScale == "C") {
+		maxTemp = 37 // Max Temp in C
+		minTemp = 1 // Min Temp in C
+		log.trace "Location is in Celsius, MaxTemp $maxTemp, MinTemp $minTemp"
+	} else {
+		maxTemp = 99 // Max temp in F
+		minTemp = 35 // Max temp in F
+		log.trace "Location is in Farenheit, MaxTemp $maxTemp, MinTemp $minTemp"
+	}
+
+	int nextLevel = device.currentValue("coolingSetpoint") - 1
+	
+	if( nextLevel < minTemp) {
+		nextLevel = minTemp
+	}
+	log.debug "Setting cool set point down to: ${nextLevel}"
+	quickSetCool(nextLevel)
+}
+
+def heatLevelUp() {
+	def locationScale = getTemperatureScale()
+	def maxTemp
+	def minTemp
+	if (locationScale == "C") {
+		maxTemp = 37 // Max Temp in C
+		minTemp = 1 // Min Temp in C
+		log.trace "Location is in Celsius, MaxTemp $maxTemp, MinTemp $minTemp"
+	} else {
+		maxTemp = 99 // Max temp in F
+		minTemp = 35 // Max temp in F
+		log.trace "Location is in Farenheit, MaxTemp $maxTemp, MinTemp $minTemp"
+	}
+
+	int nextLevel = device.currentValue("heatingSetpoint") + 1
+	
+	if( nextLevel > maxTemp) {
+		nextLevel = maxTemp
+	}
+	log.debug "Setting heat set point up to: ${nextLevel}"
+	quickSetHeat(nextLevel)
+}
+
+def heatLevelDown() {
+	def locationScale = getTemperatureScale()
+	def maxTemp
+	def minTemp
+	if (locationScale == "C") {
+		maxTemp = 37 // Max Temp in C
+		minTemp = 1 // Min Temp in C
+		log.trace "Location is in Celsius, MaxTemp $maxTemp, MinTemp $minTemp"
+	} else {
+		maxTemp = 99 // Max temp in F
+		minTemp = 35 // Max temp in F
+		log.trace "Location is in Farenheit, MaxTemp $maxTemp, MinTemp $minTemp"
+	}
+
+	int nextLevel = device.currentValue("heatingSetpoint") - 1
+	
+	if( nextLevel < minTemp) {
+		nextLevel = minTemp
+	}
+	log.debug "Setting heat set point down to: ${nextLevel}"
+	quickSetHeat(nextLevel)
 }
