@@ -34,7 +34,16 @@ preferences {
   	section("Turn on these lights..."){
 		input "switches", "capability.switch", multiple: true
 	}
-	section("and change mode to...") {
+	section("Choose thermostat... ") {
+		input "thermostat", "capability.thermostat"
+	}
+	section("Heat setting..." ) {
+		input "heatingSetpoint", "number", title: "Degrees"
+	}   
+	section("Cooling setting...") {
+		input "coolingSetpoint", "number", title: "Degrees"
+	}
+    section("and change mode to...") {
 		input "afterUnlockMode", "mode", title: "Mode?"
 	}
 
@@ -82,4 +91,6 @@ def unlockedHandler(evt) {
 		log.trace "light.on() ... [luminance: ${lightSensorState}]"
 		switches.on()
 	}
+	thermostat.quickSetHeat(heatingSetpoint)
+	thermostat.quickSetCool(coolingSetpoint)
 }
