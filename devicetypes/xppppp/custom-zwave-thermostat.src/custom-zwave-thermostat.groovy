@@ -2,7 +2,7 @@ metadata {
 	definition (name: "Custom Z-Wave Thermostat", namespace: "xppppp", author: "xppppp") {
 		capability "Actuator"
 		capability "Temperature Measurement"
-		capability "Relative Humidity Measurement"
+		// capability "Relative Humidity Measurement"
 		capability "Thermostat"
 		capability "Configuration"
 		capability "Polling"
