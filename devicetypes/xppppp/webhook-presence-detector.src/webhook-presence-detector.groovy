@@ -42,7 +42,7 @@ def parse(String description) {
 }
 def presenceResponse(physicalgraph.device.HubResponse hubResponse) {
 	if (hubResponse.status == 200) {
-    	log.debug "hubRequest success"
+    	// log.debug "hubRequest success"
     	updateState(hubResponse.json)
     } else {
     	log.debug "hubRequest failed with " + hubResponse.status
@@ -61,7 +61,7 @@ def configure() {
 }
 def updateState(data){
 	try {
-		log.debug "Recieved \"$data\" from server"
+		// log.debug "Recieved \"$data\" from server"
         if (data.success) {
         	setPresence(data.present)
         } else {
@@ -72,7 +72,7 @@ def updateState(data){
    	}
 }
 def checkPresence(){
-	log.debug "Checking presence"
+	// log.debug "Checking presence"
 	def hubAction = new physicalgraph.device.HubAction(
     	[
 			path: "/${targetPath}/${id}",
@@ -92,7 +92,7 @@ def checkPresence(){
 }
 
 def setPresence(boolean present){
-	log.debug "setPresence(" + present + ")"
+	// log.debug "setPresence(" + present + ")"
     def lastState = state.xcurrentState == "here"
     if ((present != lastState) || (state.xcurrentState == "unknown")) {
 		if (present) {
@@ -102,6 +102,6 @@ def setPresence(boolean present){
 	    	sendEvent(displayed: true,  isStateChange: true, name: "presence", value: "not present", descriptionText: "$device.displayName has left the building")
             state.xcurrentState = "absent"
         }
-		log.debug "Presence set"
+		// log.debug "Presence set"
 	}
 }
